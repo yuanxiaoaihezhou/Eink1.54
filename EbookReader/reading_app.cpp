@@ -10,9 +10,12 @@ LV_FONT_DECLARE(my_font_chinese_16);
 static const char* MENU_ITEMS[] = {
     "返回阅读",
     "强制刷新",
+    "返回书架",
     "返回主菜单"
 };
-static const int MENU_ITEM_COUNT = 3;
+static const int MENU_ITEM_COUNT = 4;
+
+const char* ReadingApp::BOOKS_FOLDER = "/books";
 
 ReadingApp::ReadingApp() : label_content(nullptr), menu_container(nullptr),
                            menu_items_labels(nullptr), menu_items_names(nullptr),
@@ -22,7 +25,9 @@ ReadingApp::ReadingApp() : label_content(nullptr), menu_container(nullptr),
                            estimated_total_pages(1), last_key_time(0),
                            boot_press_start(0), pwr_press_start(0),
                            boot_pressed(false), pwr_pressed(false),
-                           current_state(STATE_READING), menu_selection(0), total_menu_items(0) {
+                           current_state(STATE_BOOKSHELF), menu_selection(0), total_menu_items(0),
+                           bookshelf_container(nullptr), book_labels(nullptr),
+                           book_paths(nullptr), book_count(0), bookshelf_selection(0) {
     memset(history_offsets, 0, sizeof(history_offsets));
     memset(history_valid, 0, sizeof(history_valid));
     memset(text_buffer, 0, sizeof(text_buffer));
@@ -32,6 +37,7 @@ ReadingApp::ReadingApp() : label_content(nullptr), menu_container(nullptr),
 
 ReadingApp::~ReadingApp() {
     cleanup_menu_ui();
+    cleanup_bookshelf_ui();
 }
 
 void ReadingApp::set_book_path(const char* path) {
@@ -39,14 +45,15 @@ void ReadingApp::set_book_path(const char* path) {
 }
 
 void ReadingApp::init() {
-    Serial.println("Reading app init");
+    Serial.println("Reading app init - starting with bookshelf");
     
-    // Initialize state
-    current_state = STATE_READING;
+    // Initialize state to bookshelf
+    current_state = STATE_BOOKSHELF;
     menu_selection = 0;
     total_menu_items = 0;
+    bookshelf_selection = 0;
     
-    // Create text content area (leave space for bottom bar - 16 pixels)
+    // Initialize text style
     if (!style_initialized) {
         lv_style_init(&style_text);
         lv_style_set_text_font(&style_text, &my_font_chinese_16);
@@ -55,21 +62,17 @@ void ReadingApp::init() {
         style_initialized = true;
     }
     
+    // Create label_content but hide it initially (will be shown when entering reading state)
     label_content = lv_label_create(lv_scr_act());
     lv_obj_add_style(label_content, &style_text, 0);
     lv_obj_set_width(label_content, 196);
-    lv_obj_set_height(label_content, 180); // 200 - 16 (bottom bar) - 4 (padding)
+    lv_obj_set_height(label_content, 180);
     lv_obj_align(label_content, LV_ALIGN_TOP_MID, 0, 2);
     lv_label_set_long_mode(label_content, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(label_content, "正在加载...");
+    lv_obj_add_flag(label_content, LV_OBJ_FLAG_HIDDEN);
     
-    // Calculate total pages
-    calculate_total_pages();
-    
-    // Load first page
-    current_offset = 0;
-    page_num = 1;
-    load_page(current_offset);
+    // Show bookshelf
+    show_bookshelf();
 }
 
 void ReadingApp::deinit() {
@@ -84,12 +87,18 @@ void ReadingApp::deinit() {
         menu_container = nullptr;
     }
     
+    if (bookshelf_container) {
+        lv_obj_del(bookshelf_container);
+        bookshelf_container = nullptr;
+    }
+    
     if (label_content) {
         lv_obj_del(label_content);
         label_content = nullptr;
     }
     
     cleanup_menu_ui();
+    cleanup_bookshelf_ui();
 }
 
 void ReadingApp::cleanup_menu_ui() {
@@ -177,9 +186,15 @@ void ReadingApp::hide_menu() {
 
 void ReadingApp::update_menu_display() {
     // Null pointer safety check
-    if (!menu_items_labels || !menu_items_names) return;
+    if (!menu_items_labels || !menu_items_names) {
+        Serial.println("ERROR: menu arrays are null!");
+        return;
+    }
+    
+    Serial.printf("Updating menu display: selection=%d, total=%d\n", menu_selection, total_menu_items);
     
     // Update menu items with cursor indicator
+    // No background highlighting for e-ink display
     for (int i = 0; i < total_menu_items; i++) {
         if (menu_items_labels[i] && menu_items_names[i]) {
             if (i == menu_selection) {
@@ -187,17 +202,14 @@ void ReadingApp::update_menu_display() {
                 char text_with_cursor[128];
                 snprintf(text_with_cursor, sizeof(text_with_cursor), "▶ %s", menu_items_names[i]);
                 lv_label_set_text(menu_items_labels[i], text_with_cursor);
-                
-                // Highlight with background
-                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
-                lv_obj_set_style_bg_color(menu_items_labels[i], lv_color_hex(0xCCCCCC), 0);
-                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_COVER, 0);
+                Serial.printf("  Item %d: SELECTED '%s'\n", i, menu_items_names[i]);
             } else {
                 // Unselected item: show name without cursor
                 lv_label_set_text(menu_items_labels[i], menu_items_names[i]);
-                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
-                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_TRANSP, 0);
+                Serial.printf("  Item %d: '%s'\n", i, menu_items_names[i]);
             }
+        } else {
+            Serial.printf("  Item %d: NULL LABEL OR NAME!\n", i);
         }
     }
 }
@@ -217,6 +229,14 @@ void ReadingApp::execute_menu_action() {
         // Reload current page
         load_page(current_offset);
         hide_menu();
+    } else if (strcmp(selected, "返回书架") == 0) {
+        // Return to bookshelf
+        hide_menu();
+        // Hide reading content
+        if (label_content) {
+            lv_obj_add_flag(label_content, LV_OBJ_FLAG_HIDDEN);
+        }
+        show_bookshelf();
     } else if (strcmp(selected, "返回主菜单") == 0) {
         // Switch back to main menu (app 0)
         hide_menu();
@@ -352,27 +372,40 @@ void ReadingApp::loop() {
                 hide_menu();
             }
         } else {
-            // Short press: next page in reading mode
-            if (current_state == STATE_READING && current_time - last_key_time > 300) {
+            // Short press
+            if (current_time - last_key_time > 300) {
                 last_key_time = current_time;
                 
-                // Save history with validity flag
-                if (page_num < 500) {
-                    history_offsets[page_num] = current_offset;
-                    history_valid[page_num] = true;
+                if (current_state == STATE_READING) {
+                    // Next page in reading mode
+                    // Save history with validity flag
+                    if (page_num < 500) {
+                        history_offsets[page_num] = current_offset;
+                        history_valid[page_num] = true;
+                    }
+                    
+                    // Move forward ~350 bytes
+                    current_offset += 350;
+                    page_num++;
+                    
+                    // Clamp to max pages
+                    if (page_num > estimated_total_pages) {
+                        page_num = estimated_total_pages;
+                        current_offset = total_file_size > 350 ? total_file_size - 350 : 0;
+                    }
+                    
+                    load_page(current_offset);
+                } else if (current_state == STATE_BOOKSHELF) {
+                    // Navigate down in bookshelf
+                    if (book_count > 0) {
+                        bookshelf_selection++;
+                        if (bookshelf_selection >= book_count) {
+                            bookshelf_selection = 0;
+                        }
+                        update_bookshelf_display();
+                        Serial.printf("Bookshelf selection: %d\n", bookshelf_selection);
+                    }
                 }
-                
-                // Move forward ~350 bytes
-                current_offset += 350;
-                page_num++;
-                
-                // Clamp to max pages
-                if (page_num > estimated_total_pages) {
-                    page_num = estimated_total_pages;
-                    current_offset = total_file_size > 350 ? total_file_size - 350 : 0;
-                }
-                
-                load_page(current_offset);
             }
         }
     }
@@ -393,9 +426,14 @@ void ReadingApp::loop() {
         if (press_duration < 50) return; // Too short, ignore
         
         if (press_duration >= 800) {
-            // Long press: confirm menu selection
+            // Long press: confirm menu selection or select book
             if (current_state == STATE_MENU) {
                 execute_menu_action();
+            } else if (current_state == STATE_BOOKSHELF) {
+                // Select book from bookshelf
+                if (book_count > 0) {
+                    select_book();
+                }
             }
         } else {
             // Short press
@@ -423,11 +461,234 @@ void ReadingApp::loop() {
                 } else if (current_state == STATE_MENU) {
                     // Move selection down
                     menu_selection = (menu_selection + 1) % total_menu_items;
+                    Serial.printf("Menu nav: selection=%d, total_items=%d\n", menu_selection, total_menu_items);
                     update_menu_display();
                 }
             }
         }
     }
+}
+
+// ========== Bookshelf Methods ==========
+
+void ReadingApp::cleanup_bookshelf_ui() {
+    if (book_labels) {
+        delete[] book_labels;
+        book_labels = nullptr;
+    }
+    
+    if (book_paths) {
+        for (int i = 0; i < book_count; i++) {
+            if (book_paths[i]) {
+                free((void*)book_paths[i]);
+            }
+        }
+        delete[] book_paths;
+        book_paths = nullptr;
+    }
+    
+    book_count = 0;
+}
+
+void ReadingApp::create_books_folder_if_needed() {
+    if (!SD.exists(BOOKS_FOLDER)) {
+        Serial.printf("Creating books folder: %s\n", BOOKS_FOLDER);
+        if (SD.mkdir(BOOKS_FOLDER)) {
+            Serial.println("Books folder created successfully");
+        } else {
+            Serial.println("Failed to create books folder");
+        }
+    }
+}
+
+bool ReadingApp::is_book_file(const char* filename) {
+    if (!filename) return false;
+    
+    int len = strlen(filename);
+    if (len < 4) return false;
+    
+    // Check for supported file extensions
+    const char* ext = filename + len - 4;
+    return (strcasecmp(ext, ".txt") == 0 || 
+            strcasecmp(ext, ".TXT") == 0);
+}
+
+void ReadingApp::scan_books_folder() {
+    cleanup_bookshelf_ui();
+    
+    File dir = SD.open(BOOKS_FOLDER);
+    if (!dir) {
+        Serial.println("Failed to open books folder");
+        return;
+    }
+    
+    if (!dir.isDirectory()) {
+        Serial.println("Books path is not a directory");
+        dir.close();
+        return;
+    }
+    
+    // First pass: count books
+    book_count = 0;
+    File file = dir.openNextFile();
+    while (file && book_count < MAX_BOOKS) {
+        if (!file.isDirectory() && is_book_file(file.name())) {
+            book_count++;
+        }
+        file.close();
+        file = dir.openNextFile();
+    }
+    dir.close();
+    
+    Serial.printf("Found %d books\n", book_count);
+    
+    if (book_count == 0) {
+        return;
+    }
+    
+    // Allocate arrays
+    book_labels = new lv_obj_t*[book_count];
+    book_paths = new const char*[book_count];
+    
+    // Second pass: store book information
+    dir = SD.open(BOOKS_FOLDER);
+    int index = 0;
+    file = dir.openNextFile();
+    while (file && index < book_count) {
+        if (!file.isDirectory() && is_book_file(file.name())) {
+            // Store full path
+            char* full_path = (char*)malloc(strlen(BOOKS_FOLDER) + strlen(file.name()) + 2);
+            sprintf(full_path, "%s/%s", BOOKS_FOLDER, file.name());
+            book_paths[index] = full_path;
+            
+            Serial.printf("Book %d: %s\n", index, full_path);
+            index++;
+        }
+        file.close();
+        file = dir.openNextFile();
+    }
+    dir.close();
+}
+
+void ReadingApp::show_bookshelf() {
+    if (current_state == STATE_BOOKSHELF && bookshelf_container) return;
+    
+    current_state = STATE_BOOKSHELF;
+    bookshelf_selection = 0;
+    
+    // Ensure books folder exists
+    create_books_folder_if_needed();
+    
+    // Scan for books
+    scan_books_folder();
+    
+    // Create container
+    bookshelf_container = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(bookshelf_container, 196, 180);
+    lv_obj_align(bookshelf_container, LV_ALIGN_TOP_MID, 0, 2);
+    lv_obj_set_style_bg_color(bookshelf_container, lv_color_white(), 0);
+    lv_obj_set_style_border_width(bookshelf_container, 1, 0);
+    lv_obj_set_style_pad_all(bookshelf_container, 5, 0);
+    
+    // Create title
+    lv_obj_t* title = lv_label_create(bookshelf_container);
+    lv_obj_set_style_text_font(title, &my_font_chinese_16, 0);
+    lv_label_set_text(title, "书架");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 5);
+    
+    if (book_count == 0) {
+        // No books found message
+        lv_obj_t* msg = lv_label_create(bookshelf_container);
+        lv_obj_set_style_text_font(msg, &my_font_chinese_16, 0);
+        lv_label_set_text(msg, "未找到书籍\n请将txt文件\n放入SD卡\n/books文件夹");
+        lv_obj_align(msg, LV_ALIGN_CENTER, 0, 0);
+    } else {
+        // Create book list (show max 5 books on screen)
+        for (int i = 0; i < book_count && i < 5; i++) {
+            book_labels[i] = lv_label_create(bookshelf_container);
+            lv_obj_set_style_text_font(book_labels[i], &my_font_chinese_16, 0);
+            
+            // Extract filename from path
+            const char* filename = strrchr(book_paths[i], '/');
+            if (filename) {
+                filename++; // Skip the '/'
+            } else {
+                filename = book_paths[i];
+            }
+            
+            lv_label_set_text(book_labels[i], filename);
+            lv_obj_align(book_labels[i], LV_ALIGN_TOP_LEFT, 10, 35 + i * 25);
+        }
+        
+        update_bookshelf_display();
+    }
+    
+    bottom_bar.update_app_info("Bookshelf");
+}
+
+void ReadingApp::hide_bookshelf() {
+    if (bookshelf_container) {
+        lv_obj_del(bookshelf_container);
+        bookshelf_container = nullptr;
+    }
+}
+
+void ReadingApp::update_bookshelf_display() {
+    if (book_count == 0) return;
+    
+    // Update cursor for selected book
+    for (int i = 0; i < book_count && i < 5; i++) {
+        if (book_labels[i]) {
+            // Extract filename from path
+            const char* filename = strrchr(book_paths[i], '/');
+            if (filename) {
+                filename++; // Skip the '/'
+            } else {
+                filename = book_paths[i];
+            }
+            
+            if (i == bookshelf_selection) {
+                // Selected item: add cursor
+                char text_with_cursor[128];
+                snprintf(text_with_cursor, sizeof(text_with_cursor), "▶ %s", filename);
+                lv_label_set_text(book_labels[i], text_with_cursor);
+            } else {
+                // Unselected item
+                lv_label_set_text(book_labels[i], filename);
+            }
+        }
+    }
+}
+
+void ReadingApp::select_book() {
+    if (bookshelf_selection < 0 || bookshelf_selection >= book_count) {
+        Serial.println("Invalid book selection");
+        return;
+    }
+    
+    // Set the book path
+    book_path = book_paths[bookshelf_selection];
+    
+    Serial.printf("Selected book: %s\n", book_path);
+    
+    // Hide bookshelf
+    hide_bookshelf();
+    
+    // Show reading content
+    if (label_content) {
+        lv_obj_clear_flag(label_content, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // Switch to reading state
+    current_state = STATE_READING;
+    
+    // Calculate total pages
+    calculate_total_pages();
+    
+    // Load first page
+    current_offset = 0;
+    page_num = 1;
+    load_page(current_offset);
 }
 
 const char* ReadingApp::get_app_info() {

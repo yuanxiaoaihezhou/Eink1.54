@@ -98,17 +98,25 @@ int board_power_bsp_t::read_battery_percentage() {
 }
 
 void board_power_bsp_t::shutdown_system() {
-    // Turn off all power domains
-    POWEER_EPD_OFF();
+    // Note: Display of "GuGu" is handled by the calling code (main_menu_app)
+    // before calling this function
+    
+    // Turn off all power domains except EPD temporarily to show final screen
     POWEER_Audio_OFF();
     VBAT_POWER_OFF();
     
-    // Disable all wake-up sources - device will only wake on hardware reset or power cycle
-    // This is intentional for power-saving shutdown
-    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    // Configure wake-up on power button (GPIO18)
+    // Enable wake-up from deep sleep when power button is pressed (LOW level)
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_18, 0); // 0 = LOW level wake-up
     
-    // Enter deep sleep mode (effectively shutting down)
-    // The device will only wake up on reset or power cycle
+    // Small delay to ensure screen shows final content
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // Turn off EPD power
+    POWEER_EPD_OFF();
+    
+    // Enter deep sleep mode
+    // The device will wake up when power button is pressed
     esp_deep_sleep_start();
 }
 

@@ -109,7 +109,8 @@ void MainMenuApp::deinit() {
 }
 
 void MainMenuApp::update_menu_display() {
-    // Highlight selected menu item and add cursor indicator
+    // Add cursor indicator for selected item
+    // No background highlighting for e-ink display
     for (int i = 0; i < total_menu_items; i++) {
         if (menu_items_labels[i] && menu_items_names[i]) {
             if (i == selected_index) {
@@ -118,16 +119,9 @@ void MainMenuApp::update_menu_display() {
                 char text_with_cursor[128];
                 snprintf(text_with_cursor, sizeof(text_with_cursor), "▶ %s", menu_items_names[i]);
                 lv_label_set_text(menu_items_labels[i], text_with_cursor);
-                
-                // Keep background highlighting as secondary indicator
-                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
-                lv_obj_set_style_bg_color(menu_items_labels[i], lv_color_hex(0xCCCCCC), 0);
-                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_COVER, 0);
             } else {
                 // Unselected item: show name without cursor
                 lv_label_set_text(menu_items_labels[i], menu_items_names[i]);
-                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
-                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_TRANSP, 0);
             }
         }
     }
@@ -137,19 +131,26 @@ void MainMenuApp::select_menu_item() {
     // Check if shutdown option is selected (last item)
     int app_count = app_manager.get_app_count() - 1;
     if (selected_index == app_count) {
-        // Shutdown selected - show feedback to user
+        // Shutdown selected
         Serial.println("Shutting down system...");
         
-        // Display shutdown message
-        if (menu_items_labels[selected_index]) {
-            lv_label_set_text(menu_items_labels[selected_index], "正在关机...");
+        // Clear screen and display "GuGu"
+        if (menu_container) {
+            lv_obj_del(menu_container);
+            menu_container = nullptr;
         }
         
-        // Update display and wait briefly for user feedback
-        lv_task_handler();
-        delay(500);
+        // Create a simple label with "GuGu"
+        lv_obj_t* shutdown_label = lv_label_create(lv_scr_act());
+        lv_obj_set_style_text_font(shutdown_label, &my_font_chinese_16, 0);
+        lv_label_set_text(shutdown_label, "GuGu");
+        lv_obj_align(shutdown_label, LV_ALIGN_CENTER, 0, 0);
         
-        // Now shutdown
+        // Update display to show GuGu
+        lv_task_handler();
+        delay(1000);
+        
+        // Now shutdown (with wake on power button enabled)
         board_power_bsp.shutdown_system();
     } else {
         // Switch to selected app (offset by 1 because main menu is at index 0)
