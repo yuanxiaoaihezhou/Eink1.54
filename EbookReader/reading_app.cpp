@@ -19,7 +19,9 @@ ReadingApp::ReadingApp() : label_content(nullptr), menu_container(nullptr),
                            style_initialized(false),
                            book_path("/book.txt"), 
                            current_offset(0), page_num(1), total_file_size(0),
-                           estimated_total_pages(1), last_key_time(0), menu_key_time(0),
+                           estimated_total_pages(1), last_key_time(0),
+                           boot_press_start(0), pwr_press_start(0),
+                           boot_pressed(false), pwr_pressed(false),
                            current_state(STATE_READING), menu_selection(0), total_menu_items(0) {
     memset(history_offsets, 0, sizeof(history_offsets));
     memset(history_valid, 0, sizeof(history_valid));
@@ -29,14 +31,7 @@ ReadingApp::ReadingApp() : label_content(nullptr), menu_container(nullptr),
 }
 
 ReadingApp::~ReadingApp() {
-    if (menu_items_labels) {
-        delete[] menu_items_labels;
-        menu_items_labels = nullptr;
-    }
-    if (menu_items_names) {
-        delete[] menu_items_names;
-        menu_items_names = nullptr;
-    }
+    cleanup_menu_ui();
 }
 
 void ReadingApp::set_book_path(const char* path) {
@@ -94,6 +89,10 @@ void ReadingApp::deinit() {
         label_content = nullptr;
     }
     
+    cleanup_menu_ui();
+}
+
+void ReadingApp::cleanup_menu_ui() {
     if (menu_items_labels) {
         delete[] menu_items_labels;
         menu_items_labels = nullptr;
@@ -135,6 +134,14 @@ void ReadingApp::show_menu() {
     menu_items_labels = new lv_obj_t*[total_menu_items];
     menu_items_names = new const char*[total_menu_items];
     
+    // Check for allocation failure
+    if (!menu_items_labels || !menu_items_names) {
+        Serial.println("Failed to allocate menu arrays");
+        cleanup_menu_ui();
+        current_state = STATE_READING;
+        return;
+    }
+    
     for (int i = 0; i < total_menu_items; i++) {
         menu_items_labels[i] = lv_label_create(menu_container);
         lv_obj_set_style_text_font(menu_items_labels[i], &my_font_chinese_16, 0);
@@ -158,15 +165,7 @@ void ReadingApp::hide_menu() {
         menu_container = nullptr;
     }
     
-    if (menu_items_labels) {
-        delete[] menu_items_labels;
-        menu_items_labels = nullptr;
-    }
-    
-    if (menu_items_names) {
-        delete[] menu_items_names;
-        menu_items_names = nullptr;
-    }
+    cleanup_menu_ui();
     
     // Show reading content
     if (label_content) {
@@ -177,6 +176,9 @@ void ReadingApp::hide_menu() {
 }
 
 void ReadingApp::update_menu_display() {
+    // Null pointer safety check
+    if (!menu_items_labels || !menu_items_names) return;
+    
     // Update menu items with cursor indicator
     for (int i = 0; i < total_menu_items; i++) {
         if (menu_items_labels[i] && menu_items_names[i]) {
@@ -201,6 +203,12 @@ void ReadingApp::update_menu_display() {
 }
 
 void ReadingApp::execute_menu_action() {
+    // Bounds check
+    if (menu_selection < 0 || menu_selection >= MENU_ITEM_COUNT) {
+        Serial.println("Invalid menu selection");
+        return;
+    }
+    
     const char* selected = MENU_ITEMS[menu_selection];
     
     if (strcmp(selected, "返回阅读") == 0) {
@@ -321,18 +329,20 @@ void ReadingApp::show_error(const char* msg) {
 void ReadingApp::loop() {
     unsigned long current_time = millis();
     
-    // Debounce for short presses
-    if (current_time - last_key_time < 300) return;
+    // BOOT button handling - non-blocking
+    bool boot_btn = (digitalRead(BOOT_BUTTON_PIN) == LOW);
     
-    // BOOT button handling
-    if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
-        // Check for long press (hold for 800ms)
-        unsigned long press_start = current_time;
-        while (digitalRead(BOOT_BUTTON_PIN) == LOW && millis() - press_start < 1000) {
-            delay(10);
-        }
-        unsigned long press_duration = millis() - press_start;
-        last_key_time = millis();
+    if (boot_btn && !boot_pressed) {
+        // Button just pressed
+        boot_pressed = true;
+        boot_press_start = current_time;
+    } else if (!boot_btn && boot_pressed) {
+        // Button just released
+        boot_pressed = false;
+        unsigned long press_duration = current_time - boot_press_start;
+        
+        // Debounce check
+        if (press_duration < 50) return; // Too short, ignore
         
         if (press_duration >= 800) {
             // Long press: toggle menu
@@ -343,7 +353,9 @@ void ReadingApp::loop() {
             }
         } else {
             // Short press: next page in reading mode
-            if (current_state == STATE_READING) {
+            if (current_state == STATE_READING && current_time - last_key_time > 300) {
+                last_key_time = current_time;
+                
                 // Save history with validity flag
                 if (page_num < 500) {
                     history_offsets[page_num] = current_offset;
@@ -363,18 +375,22 @@ void ReadingApp::loop() {
                 load_page(current_offset);
             }
         }
-        return;
     }
     
-    // PWR button handling
-    if (digitalRead(PWR_BUTTON_PIN) == LOW) {
-        // Check for long press
-        unsigned long press_start = current_time;
-        while (digitalRead(PWR_BUTTON_PIN) == LOW && millis() - press_start < 1000) {
-            delay(10);
-        }
-        unsigned long press_duration = millis() - press_start;
-        last_key_time = millis();
+    // PWR button handling - non-blocking
+    bool pwr_btn = (digitalRead(PWR_BUTTON_PIN) == LOW);
+    
+    if (pwr_btn && !pwr_pressed) {
+        // Button just pressed
+        pwr_pressed = true;
+        pwr_press_start = current_time;
+    } else if (!pwr_btn && pwr_pressed) {
+        // Button just released
+        pwr_pressed = false;
+        unsigned long press_duration = current_time - pwr_press_start;
+        
+        // Debounce check
+        if (press_duration < 50) return; // Too short, ignore
         
         if (press_duration >= 800) {
             // Long press: confirm menu selection
@@ -383,31 +399,34 @@ void ReadingApp::loop() {
             }
         } else {
             // Short press
-            if (current_state == STATE_READING) {
-                // Previous page
-                if (page_num > 1) {
-                    page_num--;
-                    
-                    // Use history if available and valid
-                    if (page_num < 500 && history_valid[page_num]) {
-                        current_offset = history_offsets[page_num];
-                    } else {
-                        if (current_offset > 350) {
-                            current_offset -= 350;
+            if (current_time - last_key_time > 300) {
+                last_key_time = current_time;
+                
+                if (current_state == STATE_READING) {
+                    // Previous page
+                    if (page_num > 1) {
+                        page_num--;
+                        
+                        // Use history if available and valid
+                        if (page_num < 500 && history_valid[page_num]) {
+                            current_offset = history_offsets[page_num];
                         } else {
-                            current_offset = 0;
+                            if (current_offset > 350) {
+                                current_offset -= 350;
+                            } else {
+                                current_offset = 0;
+                            }
                         }
+                        
+                        load_page(current_offset);
                     }
-                    
-                    load_page(current_offset);
+                } else if (current_state == STATE_MENU) {
+                    // Move selection down
+                    menu_selection = (menu_selection + 1) % total_menu_items;
+                    update_menu_display();
                 }
-            } else if (current_state == STATE_MENU) {
-                // Move selection down
-                menu_selection = (menu_selection + 1) % total_menu_items;
-                update_menu_display();
             }
         }
-        return;
     }
 }
 

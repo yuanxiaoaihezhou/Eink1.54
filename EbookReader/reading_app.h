@@ -42,7 +42,10 @@ private:
     
     // Timing for debounce
     unsigned long last_key_time;
-    unsigned long menu_key_time;
+    unsigned long boot_press_start;
+    unsigned long pwr_press_start;
+    bool boot_pressed;
+    bool pwr_pressed;
     
     // State management
     ReadingState current_state;
@@ -59,6 +62,7 @@ private:
     void hide_menu();
     void update_menu_display();
     void execute_menu_action();
+    void cleanup_menu_ui();
     
 public:
     ReadingApp();
