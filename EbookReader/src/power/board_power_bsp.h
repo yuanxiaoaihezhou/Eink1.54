@@ -18,6 +18,9 @@ public:
     void POWEER_Audio_OFF();
     void VBAT_POWER_ON();
     void VBAT_POWER_OFF();
+    
+    // Read battery voltage and calculate percentage
+    int read_battery_percentage();
 };
 
 #endif
