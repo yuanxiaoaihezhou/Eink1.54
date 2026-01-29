@@ -11,7 +11,7 @@
 
 // --- 全局对象 ---
 epaper_driver_display *driver = NULL;
-board_power_bsp_t board_div(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
+board_power_bsp_t board_power_bsp(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 
 // App instances
 MainMenuApp main_menu;
@@ -39,8 +39,8 @@ void user_app_init(void)
   Serial.println(">>> System Booting...");
 
   // 1. 电源开启
-  board_div.POWEER_EPD_ON();
-  board_div.POWEER_Audio_ON();
+  board_power_bsp.POWEER_EPD_ON();
+  board_power_bsp.POWEER_Audio_ON();
   delay(100);
 
   // 2. 按键初始化
@@ -84,7 +84,7 @@ void user_ui_init(void)
     bottom_bar.create();
     
     // Initialize battery display
-    int battery_level = board_div.read_battery_percentage();
+    int battery_level = board_power_bsp.read_battery_percentage();
     bottom_bar.update_battery(battery_level);
     last_battery_update = millis();
     
@@ -97,7 +97,7 @@ void reader_loop_handle(void) {
     // Update battery periodically (with millis() wraparound handling)
     unsigned long current_time = millis();
     if (current_time - last_battery_update >= BATTERY_UPDATE_INTERVAL) {
-        int battery_level = board_div.read_battery_percentage();
+        int battery_level = board_power_bsp.read_battery_percentage();
         bottom_bar.update_battery(battery_level);
         last_battery_update = current_time;
     }
