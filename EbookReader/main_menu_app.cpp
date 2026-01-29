@@ -77,16 +77,17 @@ void MainMenuApp::init() {
 void MainMenuApp::deinit() {
     Serial.println("Main menu app deinit");
     
-    // Delete menu items labels array first
-    if (menu_items_labels) {
-        delete[] menu_items_labels;
-        menu_items_labels = nullptr;
-    }
-    
-    // Then delete container which also deletes child LVGL objects
+    // Delete container which also deletes child LVGL objects
+    // (including all items in menu_items_labels array)
     if (menu_container) {
         lv_obj_del(menu_container);
         menu_container = nullptr;
+    }
+    
+    // Delete the array itself (the LVGL objects were already freed above)
+    if (menu_items_labels) {
+        delete[] menu_items_labels;
+        menu_items_labels = nullptr;
     }
 }
 
@@ -110,8 +111,19 @@ void MainMenuApp::select_menu_item() {
     // Check if shutdown option is selected (last item)
     int app_count = app_manager.get_app_count() - 1;
     if (selected_index == app_count) {
-        // Shutdown selected
+        // Shutdown selected - show feedback to user
         Serial.println("Shutting down system...");
+        
+        // Display shutdown message
+        if (menu_items_labels[selected_index]) {
+            lv_label_set_text(menu_items_labels[selected_index], "正在关机...");
+        }
+        
+        // Update display and wait briefly for user feedback
+        lv_task_handler();
+        delay(500);
+        
+        // Now shutdown
         board_power_bsp.shutdown_system();
     } else {
         // Switch to selected app (offset by 1 because main menu is at index 0)

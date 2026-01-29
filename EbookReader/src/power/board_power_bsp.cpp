@@ -103,6 +103,10 @@ void board_power_bsp_t::shutdown_system() {
     POWEER_Audio_OFF();
     VBAT_POWER_OFF();
     
+    // Disable all wake-up sources - device will only wake on hardware reset or power cycle
+    // This is intentional for power-saving shutdown
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    
     // Enter deep sleep mode (effectively shutting down)
     // The device will only wake up on reset or power cycle
     esp_deep_sleep_start();
