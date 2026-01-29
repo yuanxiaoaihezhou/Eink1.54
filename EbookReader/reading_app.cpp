@@ -180,6 +180,7 @@ void ReadingApp::update_menu_display() {
     if (!menu_items_labels || !menu_items_names) return;
     
     // Update menu items with cursor indicator
+    // No background highlighting for e-ink display
     for (int i = 0; i < total_menu_items; i++) {
         if (menu_items_labels[i] && menu_items_names[i]) {
             if (i == menu_selection) {
@@ -187,16 +188,9 @@ void ReadingApp::update_menu_display() {
                 char text_with_cursor[128];
                 snprintf(text_with_cursor, sizeof(text_with_cursor), "▶ %s", menu_items_names[i]);
                 lv_label_set_text(menu_items_labels[i], text_with_cursor);
-                
-                // Highlight with background
-                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
-                lv_obj_set_style_bg_color(menu_items_labels[i], lv_color_hex(0xCCCCCC), 0);
-                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_COVER, 0);
             } else {
                 // Unselected item: show name without cursor
                 lv_label_set_text(menu_items_labels[i], menu_items_names[i]);
-                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
-                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_TRANSP, 0);
             }
         }
     }
