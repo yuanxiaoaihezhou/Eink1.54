@@ -6,10 +6,21 @@
 // External font declaration
 LV_FONT_DECLARE(my_font_chinese_16);
 
-ReadingApp::ReadingApp() : label_content(nullptr), style_initialized(false),
+// Menu items
+static const char* MENU_ITEMS[] = {
+    "返回阅读",
+    "强制刷新",
+    "返回主菜单"
+};
+static const int MENU_ITEM_COUNT = 3;
+
+ReadingApp::ReadingApp() : label_content(nullptr), menu_container(nullptr),
+                           menu_items_labels(nullptr), menu_items_names(nullptr),
+                           style_initialized(false),
                            book_path("/book.txt"), 
                            current_offset(0), page_num(1), total_file_size(0),
-                           estimated_total_pages(1), last_key_time(0) {
+                           estimated_total_pages(1), last_key_time(0), menu_key_time(0),
+                           current_state(STATE_READING), menu_selection(0), total_menu_items(0) {
     memset(history_offsets, 0, sizeof(history_offsets));
     memset(history_valid, 0, sizeof(history_valid));
     memset(text_buffer, 0, sizeof(text_buffer));
@@ -18,6 +29,14 @@ ReadingApp::ReadingApp() : label_content(nullptr), style_initialized(false),
 }
 
 ReadingApp::~ReadingApp() {
+    if (menu_items_labels) {
+        delete[] menu_items_labels;
+        menu_items_labels = nullptr;
+    }
+    if (menu_items_names) {
+        delete[] menu_items_names;
+        menu_items_names = nullptr;
+    }
 }
 
 void ReadingApp::set_book_path(const char* path) {
@@ -26,6 +45,11 @@ void ReadingApp::set_book_path(const char* path) {
 
 void ReadingApp::init() {
     Serial.println("Reading app init");
+    
+    // Initialize state
+    current_state = STATE_READING;
+    menu_selection = 0;
+    total_menu_items = 0;
     
     // Create text content area (leave space for bottom bar - 16 pixels)
     if (!style_initialized) {
@@ -60,9 +84,136 @@ void ReadingApp::deinit() {
         book_file.close();
     }
     
+    if (menu_container) {
+        lv_obj_del(menu_container);
+        menu_container = nullptr;
+    }
+    
     if (label_content) {
         lv_obj_del(label_content);
         label_content = nullptr;
+    }
+    
+    if (menu_items_labels) {
+        delete[] menu_items_labels;
+        menu_items_labels = nullptr;
+    }
+    
+    if (menu_items_names) {
+        delete[] menu_items_names;
+        menu_items_names = nullptr;
+    }
+}
+
+void ReadingApp::show_menu() {
+    if (current_state == STATE_MENU) return;
+    
+    current_state = STATE_MENU;
+    menu_selection = 0;
+    total_menu_items = MENU_ITEM_COUNT;
+    
+    // Hide reading content
+    if (label_content) {
+        lv_obj_add_flag(label_content, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // Create menu container
+    menu_container = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(menu_container, 196, 180);
+    lv_obj_align(menu_container, LV_ALIGN_TOP_MID, 0, 2);
+    lv_obj_set_style_bg_color(menu_container, lv_color_white(), 0);
+    lv_obj_set_style_border_width(menu_container, 1, 0);
+    lv_obj_set_style_pad_all(menu_container, 5, 0);
+    
+    // Create title
+    lv_obj_t* title = lv_label_create(menu_container);
+    lv_obj_set_style_text_font(title, &my_font_chinese_16, 0);
+    lv_label_set_text(title, "系统菜单");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 5);
+    
+    // Create menu items
+    menu_items_labels = new lv_obj_t*[total_menu_items];
+    menu_items_names = new const char*[total_menu_items];
+    
+    for (int i = 0; i < total_menu_items; i++) {
+        menu_items_labels[i] = lv_label_create(menu_container);
+        lv_obj_set_style_text_font(menu_items_labels[i], &my_font_chinese_16, 0);
+        menu_items_names[i] = MENU_ITEMS[i];
+        lv_label_set_text(menu_items_labels[i], menu_items_names[i]);
+        lv_obj_align(menu_items_labels[i], LV_ALIGN_TOP_LEFT, 10, 35 + i * 25);
+    }
+    
+    update_menu_display();
+    Serial.println("Menu shown");
+}
+
+void ReadingApp::hide_menu() {
+    if (current_state != STATE_MENU) return;
+    
+    current_state = STATE_READING;
+    
+    // Delete menu
+    if (menu_container) {
+        lv_obj_del(menu_container);
+        menu_container = nullptr;
+    }
+    
+    if (menu_items_labels) {
+        delete[] menu_items_labels;
+        menu_items_labels = nullptr;
+    }
+    
+    if (menu_items_names) {
+        delete[] menu_items_names;
+        menu_items_names = nullptr;
+    }
+    
+    // Show reading content
+    if (label_content) {
+        lv_obj_clear_flag(label_content, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    Serial.println("Menu hidden");
+}
+
+void ReadingApp::update_menu_display() {
+    // Update menu items with cursor indicator
+    for (int i = 0; i < total_menu_items; i++) {
+        if (menu_items_labels[i] && menu_items_names[i]) {
+            if (i == menu_selection) {
+                // Selected item: add cursor prefix "▶ "
+                char text_with_cursor[128];
+                snprintf(text_with_cursor, sizeof(text_with_cursor), "▶ %s", menu_items_names[i]);
+                lv_label_set_text(menu_items_labels[i], text_with_cursor);
+                
+                // Highlight with background
+                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
+                lv_obj_set_style_bg_color(menu_items_labels[i], lv_color_hex(0xCCCCCC), 0);
+                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_COVER, 0);
+            } else {
+                // Unselected item: show name without cursor
+                lv_label_set_text(menu_items_labels[i], menu_items_names[i]);
+                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
+                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_TRANSP, 0);
+            }
+        }
+    }
+}
+
+void ReadingApp::execute_menu_action() {
+    const char* selected = MENU_ITEMS[menu_selection];
+    
+    if (strcmp(selected, "返回阅读") == 0) {
+        hide_menu();
+    } else if (strcmp(selected, "强制刷新") == 0) {
+        // Reload current page
+        load_page(current_offset);
+        hide_menu();
+    } else if (strcmp(selected, "返回主菜单") == 0) {
+        // Switch back to main menu (app 0)
+        hide_menu();
+        extern AppManager app_manager;
+        app_manager.switch_to_app(0);
     }
 }
 
@@ -168,51 +319,95 @@ void ReadingApp::show_error(const char* msg) {
 }
 
 void ReadingApp::loop() {
-    if (millis() - last_key_time < 300) return; // Debounce
+    unsigned long current_time = millis();
     
-    // Next page (BOOT button)
+    // Debounce for short presses
+    if (current_time - last_key_time < 300) return;
+    
+    // BOOT button handling
     if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
+        // Check for long press (hold for 800ms)
+        unsigned long press_start = current_time;
+        while (digitalRead(BOOT_BUTTON_PIN) == LOW && millis() - press_start < 1000) {
+            delay(10);
+        }
+        unsigned long press_duration = millis() - press_start;
         last_key_time = millis();
         
-        // Save history with validity flag
-        if (page_num < 500) {
-            history_offsets[page_num] = current_offset;
-            history_valid[page_num] = true;
+        if (press_duration >= 800) {
+            // Long press: toggle menu
+            if (current_state == STATE_READING) {
+                show_menu();
+            } else if (current_state == STATE_MENU) {
+                hide_menu();
+            }
+        } else {
+            // Short press: next page in reading mode
+            if (current_state == STATE_READING) {
+                // Save history with validity flag
+                if (page_num < 500) {
+                    history_offsets[page_num] = current_offset;
+                    history_valid[page_num] = true;
+                }
+                
+                // Move forward ~350 bytes
+                current_offset += 350;
+                page_num++;
+                
+                // Clamp to max pages
+                if (page_num > estimated_total_pages) {
+                    page_num = estimated_total_pages;
+                    current_offset = total_file_size > 350 ? total_file_size - 350 : 0;
+                }
+                
+                load_page(current_offset);
+            }
         }
-        
-        // Move forward ~350 bytes
-        current_offset += 350;
-        page_num++;
-        
-        // Clamp to max pages
-        if (page_num > estimated_total_pages) {
-            page_num = estimated_total_pages;
-            current_offset = total_file_size > 350 ? total_file_size - 350 : 0;
-        }
-        
-        load_page(current_offset);
+        return;
     }
     
-    // Previous page (PWR button)
+    // PWR button handling
     if (digitalRead(PWR_BUTTON_PIN) == LOW) {
+        // Check for long press
+        unsigned long press_start = current_time;
+        while (digitalRead(PWR_BUTTON_PIN) == LOW && millis() - press_start < 1000) {
+            delay(10);
+        }
+        unsigned long press_duration = millis() - press_start;
         last_key_time = millis();
         
-        if (page_num > 1) {
-            page_num--;
-            
-            // Use history if available and valid
-            if (page_num < 500 && history_valid[page_num]) {
-                current_offset = history_offsets[page_num];
-            } else {
-                if (current_offset > 350) {
-                    current_offset -= 350;
-                } else {
-                    current_offset = 0;
-                }
+        if (press_duration >= 800) {
+            // Long press: confirm menu selection
+            if (current_state == STATE_MENU) {
+                execute_menu_action();
             }
-            
-            load_page(current_offset);
+        } else {
+            // Short press
+            if (current_state == STATE_READING) {
+                // Previous page
+                if (page_num > 1) {
+                    page_num--;
+                    
+                    // Use history if available and valid
+                    if (page_num < 500 && history_valid[page_num]) {
+                        current_offset = history_offsets[page_num];
+                    } else {
+                        if (current_offset > 350) {
+                            current_offset -= 350;
+                        } else {
+                            current_offset = 0;
+                        }
+                    }
+                    
+                    load_page(current_offset);
+                }
+            } else if (current_state == STATE_MENU) {
+                // Move selection down
+                menu_selection = (menu_selection + 1) % total_menu_items;
+                update_menu_display();
+            }
         }
+        return;
     }
 }
 

@@ -5,9 +5,19 @@
 #include "lvgl.h"
 #include <SD.h>
 
+// State definitions
+enum ReadingState {
+    STATE_READING = 0,
+    STATE_MENU = 1
+};
+
 class ReadingApp : public BaseApp {
 private:
     lv_obj_t* label_content;
+    lv_obj_t* menu_container;
+    lv_obj_t** menu_items_labels;
+    const char** menu_items_names;
+    
     lv_style_t style_text;
     bool style_initialized;
     
@@ -32,6 +42,12 @@ private:
     
     // Timing for debounce
     unsigned long last_key_time;
+    unsigned long menu_key_time;
+    
+    // State management
+    ReadingState current_state;
+    int menu_selection;
+    int total_menu_items;
     
     // Internal methods
     void load_page(unsigned long offset);
@@ -39,6 +55,10 @@ private:
     int read_utf8_safe(File &f, char* buf, int maxLen);
     void calculate_total_pages();
     void update_status_info();
+    void show_menu();
+    void hide_menu();
+    void update_menu_display();
+    void execute_menu_action();
     
 public:
     ReadingApp();
