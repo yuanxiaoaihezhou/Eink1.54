@@ -8,6 +8,8 @@
 class ReadingApp : public BaseApp {
 private:
     lv_obj_t* label_content;
+    lv_style_t style_text;
+    bool style_initialized;
     
     File book_file;
     const char* book_path;
@@ -18,6 +20,7 @@ private:
     
     // History for previous page tracking
     unsigned long history_offsets[500];
+    bool history_valid[500];
     
     // Text buffer
     static const int BUFFER_SIZE = 512;
@@ -25,6 +28,7 @@ private:
     
     // Status buffer for bottom bar
     char status_buffer[64];
+    char last_status_buffer[64];
     
     // Timing for debounce
     unsigned long last_key_time;

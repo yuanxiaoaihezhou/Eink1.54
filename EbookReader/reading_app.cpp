@@ -6,12 +6,15 @@
 // External font declaration
 LV_FONT_DECLARE(my_font_chinese_16);
 
-ReadingApp::ReadingApp() : label_content(nullptr), book_path("/book.txt"), 
+ReadingApp::ReadingApp() : label_content(nullptr), style_initialized(false),
+                           book_path("/book.txt"), 
                            current_offset(0), page_num(1), total_file_size(0),
                            estimated_total_pages(1), last_key_time(0) {
     memset(history_offsets, 0, sizeof(history_offsets));
+    memset(history_valid, 0, sizeof(history_valid));
     memset(text_buffer, 0, sizeof(text_buffer));
     memset(status_buffer, 0, sizeof(status_buffer));
+    memset(last_status_buffer, 0, sizeof(last_status_buffer));
 }
 
 ReadingApp::~ReadingApp() {
@@ -25,11 +28,13 @@ void ReadingApp::init() {
     Serial.println("Reading app init");
     
     // Create text content area (leave space for bottom bar - 16 pixels)
-    static lv_style_t style_text;
-    lv_style_init(&style_text);
-    lv_style_set_text_font(&style_text, &my_font_chinese_16);
-    lv_style_set_text_color(&style_text, lv_color_black());
-    lv_style_set_text_line_space(&style_text, 4);
+    if (!style_initialized) {
+        lv_style_init(&style_text);
+        lv_style_set_text_font(&style_text, &my_font_chinese_16);
+        lv_style_set_text_color(&style_text, lv_color_black());
+        lv_style_set_text_line_space(&style_text, 4);
+        style_initialized = true;
+    }
     
     label_content = lv_label_create(lv_scr_act());
     lv_obj_add_style(label_content, &style_text, 0);
@@ -90,14 +95,26 @@ int ReadingApp::read_utf8_safe(File &f, char* buf, int maxLen) {
     int safeLen = readLen;
     
     // Check if we cut off a multi-byte UTF-8 character
+    // Continuation bytes have pattern 10xxxxxx (0x80 to 0xBF)
     while (safeLen > 0 && (buf[safeLen-1] & 0xC0) == 0x80) {
         safeLen--;
     }
     
+    // Check if the last byte is a multi-byte character start that may be incomplete
     if (safeLen > 0) {
         unsigned char lastChar = (unsigned char)buf[safeLen-1];
-        if ((lastChar & 0xC0) == 0xC0) {
-            safeLen--;
+        
+        // Check if it's a multi-byte character start (bit pattern 11xxxxxx)
+        // and we don't have the full character
+        if ((lastChar & 0xE0) == 0xC0) {
+            // 2-byte character start (110xxxxx), need 1 more byte
+            if (safeLen >= readLen) safeLen--; // Incomplete, remove it
+        } else if ((lastChar & 0xF0) == 0xE0) {
+            // 3-byte character start (1110xxxx), need 2 more bytes
+            if (safeLen >= readLen - 1) safeLen--; // Incomplete, remove it
+        } else if ((lastChar & 0xF8) == 0xF0) {
+            // 4-byte character start (11110xxx), need 3 more bytes
+            if (safeLen >= readLen - 2) safeLen--; // Incomplete, remove it
         }
     }
     
@@ -133,10 +150,15 @@ void ReadingApp::load_page(unsigned long offset) {
 }
 
 void ReadingApp::update_status_info() {
-    // Format: "Ch1 1/100"
-    // For now, we don't detect chapters, so just show page numbers
-    sprintf(status_buffer, "%d/%d", page_num, estimated_total_pages);
-    bottom_bar.update_app_info(status_buffer);
+    // Format: "page/total"
+    snprintf(status_buffer, sizeof(status_buffer), "%d/%d", page_num, estimated_total_pages);
+    
+    // Only update bottom bar if status changed
+    if (strcmp(status_buffer, last_status_buffer) != 0) {
+        bottom_bar.update_app_info(status_buffer);
+        strncpy(last_status_buffer, status_buffer, sizeof(last_status_buffer) - 1);
+        last_status_buffer[sizeof(last_status_buffer) - 1] = '\0';
+    }
 }
 
 void ReadingApp::show_error(const char* msg) {
@@ -152,9 +174,10 @@ void ReadingApp::loop() {
     if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
         last_key_time = millis();
         
-        // Save history
+        // Save history with validity flag
         if (page_num < 500) {
             history_offsets[page_num] = current_offset;
+            history_valid[page_num] = true;
         }
         
         // Move forward ~350 bytes
@@ -177,8 +200,8 @@ void ReadingApp::loop() {
         if (page_num > 1) {
             page_num--;
             
-            // Use history if available
-            if (page_num < 500 && history_offsets[page_num] > 0) {
+            // Use history if available and valid
+            if (page_num < 500 && history_valid[page_num]) {
                 current_offset = history_offsets[page_num];
             } else {
                 if (current_offset > 350) {

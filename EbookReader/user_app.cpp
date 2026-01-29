@@ -29,6 +29,9 @@ const int APP_COUNT = sizeof(app_list) / sizeof(app_list[0]);
 unsigned long last_battery_update = 0;
 const unsigned long BATTERY_UPDATE_INTERVAL = 60000; // Update every 60 seconds
 
+// Last app info to detect changes
+char last_app_info[64] = "";
+
 // --- 初始化硬件 ---
 void user_app_init(void)
 {
@@ -91,15 +94,21 @@ void user_ui_init(void)
 
 // --- 循环按键检测和电池更新 ---
 void reader_loop_handle(void) {
-    // Update battery periodically
-    if (millis() - last_battery_update > BATTERY_UPDATE_INTERVAL) {
+    // Update battery periodically (with millis() wraparound handling)
+    unsigned long current_time = millis();
+    if (current_time - last_battery_update >= BATTERY_UPDATE_INTERVAL) {
         int battery_level = board_div.read_battery_percentage();
         bottom_bar.update_battery(battery_level);
-        last_battery_update = millis();
+        last_battery_update = current_time;
     }
     
-    // Update bottom bar with current app info
-    bottom_bar.update_app_info(app_manager.get_current_app_info());
+    // Update bottom bar with current app info only if it changed
+    const char* current_app_info = app_manager.get_current_app_info();
+    if (strcmp(current_app_info, last_app_info) != 0) {
+        bottom_bar.update_app_info(current_app_info);
+        strncpy(last_app_info, current_app_info, sizeof(last_app_info) - 1);
+        last_app_info[sizeof(last_app_info) - 1] = '\0';
+    }
     
     // Call current app's loop
     app_manager.loop();

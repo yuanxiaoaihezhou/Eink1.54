@@ -64,14 +64,16 @@ void MainMenuApp::init() {
 void MainMenuApp::deinit() {
     Serial.println("Main menu app deinit");
     
-    if (menu_container) {
-        lv_obj_del(menu_container);
-        menu_container = nullptr;
-    }
-    
+    // Delete app labels array first
     if (app_labels) {
         delete[] app_labels;
         app_labels = nullptr;
+    }
+    
+    // Then delete container which also deletes child LVGL objects
+    if (menu_container) {
+        lv_obj_del(menu_container);
+        menu_container = nullptr;
     }
 }
 

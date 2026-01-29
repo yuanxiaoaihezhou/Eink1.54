@@ -90,6 +90,9 @@ int board_power_bsp_t::read_battery_percentage() {
     }
     #endif
     
+    // Turn off VBAT power after reading to save battery
+    VBAT_POWER_OFF();
+    
     return percentage;
 }
 

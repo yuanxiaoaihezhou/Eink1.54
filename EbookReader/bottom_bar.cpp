@@ -15,6 +15,12 @@ BottomBar::~BottomBar() {
 }
 
 void BottomBar::create() {
+    // Check if already created to prevent multiple instantiation
+    if (bar_container != nullptr) {
+        Serial.println("Bottom bar already created");
+        return;
+    }
+    
     // Create a container for the bottom bar (height: 16 pixels)
     bar_container = lv_obj_create(lv_scr_act());
     lv_obj_set_size(bar_container, 200, 16);
@@ -43,7 +49,7 @@ void BottomBar::update_battery(int percentage) {
     if (percentage > 100) percentage = 100;
     
     battery_percentage = percentage;
-    sprintf(battery_text, "%d%%", percentage);
+    snprintf(battery_text, sizeof(battery_text), "%d%%", percentage);
     
     if (battery_label) {
         lv_label_set_text(battery_label, battery_text);
