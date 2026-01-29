@@ -8,6 +8,7 @@ class MainMenuApp : public BaseApp {
 private:
     lv_obj_t* menu_container;
     lv_obj_t** menu_items_labels;
+    const char** menu_items_names;  // Store original menu item names
     int total_menu_items;
     int selected_index;
     

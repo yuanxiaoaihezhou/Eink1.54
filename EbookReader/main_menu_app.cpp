@@ -12,13 +12,18 @@ LV_FONT_DECLARE(my_font_chinese_16);
 extern board_power_bsp_t board_power_bsp;
 
 MainMenuApp::MainMenuApp() : menu_container(nullptr), menu_items_labels(nullptr),
-                             total_menu_items(0), selected_index(0), last_key_time(0) {
+                             menu_items_names(nullptr), total_menu_items(0), 
+                             selected_index(0), last_key_time(0) {
 }
 
 MainMenuApp::~MainMenuApp() {
     if (menu_items_labels) {
         delete[] menu_items_labels;
         menu_items_labels = nullptr;
+    }
+    if (menu_items_names) {
+        delete[] menu_items_names;
+        menu_items_names = nullptr;
     }
 }
 
@@ -48,6 +53,7 @@ void MainMenuApp::init() {
     // Create menu items labels (apps + shutdown)
     if (total_menu_items > 0) {
         menu_items_labels = new lv_obj_t*[total_menu_items];
+        menu_items_names = new const char*[total_menu_items];
         
         // Add app items
         for (int i = 0; i < app_count; i++) {
@@ -57,7 +63,8 @@ void MainMenuApp::init() {
             // Get app name (index + 1 because main menu is at 0)
             BaseApp* app = app_manager.get_app(i + 1);
             if (app) {
-                lv_label_set_text(menu_items_labels[i], app->get_app_name());
+                menu_items_names[i] = app->get_app_name();
+                lv_label_set_text(menu_items_labels[i], menu_items_names[i]);
             }
             
             lv_obj_align(menu_items_labels[i], LV_ALIGN_TOP_LEFT, 10, 35 + i * 25);
@@ -66,7 +73,8 @@ void MainMenuApp::init() {
         // Add shutdown option as the last item
         menu_items_labels[app_count] = lv_label_create(menu_container);
         lv_obj_set_style_text_font(menu_items_labels[app_count], &my_font_chinese_16, 0);
-        lv_label_set_text(menu_items_labels[app_count], "关机");
+        menu_items_names[app_count] = "关机";
+        lv_label_set_text(menu_items_labels[app_count], menu_items_names[app_count]);
         lv_obj_align(menu_items_labels[app_count], LV_ALIGN_TOP_LEFT, 10, 35 + app_count * 25);
     }
     
@@ -84,22 +92,35 @@ void MainMenuApp::deinit() {
         menu_container = nullptr;
     }
     
-    // Delete the array itself (the LVGL objects were already freed above)
+    // Delete the arrays (the LVGL objects were already freed above)
     if (menu_items_labels) {
         delete[] menu_items_labels;
         menu_items_labels = nullptr;
     }
+    
+    if (menu_items_names) {
+        delete[] menu_items_names;
+        menu_items_names = nullptr;
+    }
 }
 
 void MainMenuApp::update_menu_display() {
-    // Highlight selected menu item
+    // Highlight selected menu item and add cursor indicator
     for (int i = 0; i < total_menu_items; i++) {
-        if (menu_items_labels[i]) {
+        if (menu_items_labels[i] && menu_items_names[i]) {
             if (i == selected_index) {
+                // Selected item: add cursor prefix "▶ "
+                char text_with_cursor[64];
+                snprintf(text_with_cursor, sizeof(text_with_cursor), "▶ %s", menu_items_names[i]);
+                lv_label_set_text(menu_items_labels[i], text_with_cursor);
+                
+                // Keep background highlighting as secondary indicator
                 lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
                 lv_obj_set_style_bg_color(menu_items_labels[i], lv_color_hex(0xCCCCCC), 0);
                 lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_COVER, 0);
             } else {
+                // Unselected item: show name without cursor
+                lv_label_set_text(menu_items_labels[i], menu_items_names[i]);
                 lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
                 lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_TRANSP, 0);
             }
