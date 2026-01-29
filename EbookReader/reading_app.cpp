@@ -186,7 +186,12 @@ void ReadingApp::hide_menu() {
 
 void ReadingApp::update_menu_display() {
     // Null pointer safety check
-    if (!menu_items_labels || !menu_items_names) return;
+    if (!menu_items_labels || !menu_items_names) {
+        Serial.println("ERROR: menu arrays are null!");
+        return;
+    }
+    
+    Serial.printf("Updating menu display: selection=%d, total=%d\n", menu_selection, total_menu_items);
     
     // Update menu items with cursor indicator
     // No background highlighting for e-ink display
@@ -197,10 +202,14 @@ void ReadingApp::update_menu_display() {
                 char text_with_cursor[128];
                 snprintf(text_with_cursor, sizeof(text_with_cursor), "▶ %s", menu_items_names[i]);
                 lv_label_set_text(menu_items_labels[i], text_with_cursor);
+                Serial.printf("  Item %d: SELECTED '%s'\n", i, menu_items_names[i]);
             } else {
                 // Unselected item: show name without cursor
                 lv_label_set_text(menu_items_labels[i], menu_items_names[i]);
+                Serial.printf("  Item %d: '%s'\n", i, menu_items_names[i]);
             }
+        } else {
+            Serial.printf("  Item %d: NULL LABEL OR NAME!\n", i);
         }
     }
 }
@@ -452,6 +461,7 @@ void ReadingApp::loop() {
                 } else if (current_state == STATE_MENU) {
                     // Move selection down
                     menu_selection = (menu_selection + 1) % total_menu_items;
+                    Serial.printf("Menu nav: selection=%d, total_items=%d\n", menu_selection, total_menu_items);
                     update_menu_display();
                 }
             }
