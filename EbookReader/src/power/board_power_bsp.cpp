@@ -3,6 +3,7 @@
 #include "driver/gpio.h"
 #include "driver/adc.h"
 #include "esp_adc_cal.h"
+#include "esp_sleep.h"
 #include "board_power_bsp.h"
 
 #define BATTERY_ADC_CHANNEL ADC1_CHANNEL_0  // GPIO1 (adjust if needed)
@@ -94,5 +95,20 @@ int board_power_bsp_t::read_battery_percentage() {
     VBAT_POWER_OFF();
     
     return percentage;
+}
+
+void board_power_bsp_t::shutdown_system() {
+    // Turn off all power domains
+    POWEER_EPD_OFF();
+    POWEER_Audio_OFF();
+    VBAT_POWER_OFF();
+    
+    // Disable all wake-up sources - device will only wake on hardware reset or power cycle
+    // This is intentional for power-saving shutdown
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    
+    // Enter deep sleep mode (effectively shutting down)
+    // The device will only wake up on reset or power cycle
+    esp_deep_sleep_start();
 }
 

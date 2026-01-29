@@ -31,13 +31,13 @@ void BottomBar::create() {
     
     // Battery label on the left
     battery_label = lv_label_create(bar_container);
-    lv_obj_set_style_text_font(battery_label, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_font(battery_label, &lv_font_montserrat_16, 0);
     lv_obj_align(battery_label, LV_ALIGN_LEFT_MID, 2, 0);
     lv_label_set_text(battery_label, battery_text);
     
     // App info label on the right
     app_info_label = lv_label_create(bar_container);
-    lv_obj_set_style_text_font(app_info_label, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_font(app_info_label, &lv_font_montserrat_16, 0);
     lv_obj_align(app_info_label, LV_ALIGN_RIGHT_MID, -2, 0);
     lv_label_set_text(app_info_label, app_info_text);
     

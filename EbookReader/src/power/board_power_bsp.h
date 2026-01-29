@@ -21,6 +21,9 @@ public:
     
     // Read battery voltage and calculate percentage
     int read_battery_percentage();
+    
+    // Shutdown system (enter deep sleep)
+    void shutdown_system();
 };
 
 #endif

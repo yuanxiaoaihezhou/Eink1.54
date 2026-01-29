@@ -2,19 +2,23 @@
 #include "app_manager.h"
 #include "bottom_bar.h"
 #include "user_config.h"
+#include "src/power/board_power_bsp.h"
 #include <Arduino.h>
 
 // External font
 LV_FONT_DECLARE(my_font_chinese_16);
 
-MainMenuApp::MainMenuApp() : menu_container(nullptr), app_labels(nullptr),
-                             app_count(0), selected_index(0), last_key_time(0) {
+// External power manager
+extern board_power_bsp_t board_power_bsp;
+
+MainMenuApp::MainMenuApp() : menu_container(nullptr), menu_items_labels(nullptr),
+                             total_menu_items(0), selected_index(0), last_key_time(0) {
 }
 
 MainMenuApp::~MainMenuApp() {
-    if (app_labels) {
-        delete[] app_labels;
-        app_labels = nullptr;
+    if (menu_items_labels) {
+        delete[] menu_items_labels;
+        menu_items_labels = nullptr;
     }
 }
 
@@ -22,7 +26,9 @@ void MainMenuApp::init() {
     Serial.println("Main menu app init");
     
     // Get app count (excluding main menu itself which is at index 0)
-    app_count = app_manager.get_app_count() - 1;
+    int app_count = app_manager.get_app_count() - 1;
+    // Total menu items = apps + 1 shutdown option
+    total_menu_items = app_count + 1;
     selected_index = 0;
     
     // Create container for menu (leave space for bottom bar)
@@ -39,22 +45,29 @@ void MainMenuApp::init() {
     lv_label_set_text(title, "选择应用");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 5);
     
-    // Create app list labels
-    if (app_count > 0) {
-        app_labels = new lv_obj_t*[app_count];
+    // Create menu items labels (apps + shutdown)
+    if (total_menu_items > 0) {
+        menu_items_labels = new lv_obj_t*[total_menu_items];
         
+        // Add app items
         for (int i = 0; i < app_count; i++) {
-            app_labels[i] = lv_label_create(menu_container);
-            lv_obj_set_style_text_font(app_labels[i], &my_font_chinese_16, 0);
+            menu_items_labels[i] = lv_label_create(menu_container);
+            lv_obj_set_style_text_font(menu_items_labels[i], &my_font_chinese_16, 0);
             
             // Get app name (index + 1 because main menu is at 0)
             BaseApp* app = app_manager.get_app(i + 1);
             if (app) {
-                lv_label_set_text(app_labels[i], app->get_app_name());
+                lv_label_set_text(menu_items_labels[i], app->get_app_name());
             }
             
-            lv_obj_align(app_labels[i], LV_ALIGN_TOP_LEFT, 10, 35 + i * 25);
+            lv_obj_align(menu_items_labels[i], LV_ALIGN_TOP_LEFT, 10, 35 + i * 25);
         }
+        
+        // Add shutdown option as the last item
+        menu_items_labels[app_count] = lv_label_create(menu_container);
+        lv_obj_set_style_text_font(menu_items_labels[app_count], &my_font_chinese_16, 0);
+        lv_label_set_text(menu_items_labels[app_count], "关机");
+        lv_obj_align(menu_items_labels[app_count], LV_ALIGN_TOP_LEFT, 10, 35 + app_count * 25);
     }
     
     update_menu_display();
@@ -64,39 +77,59 @@ void MainMenuApp::init() {
 void MainMenuApp::deinit() {
     Serial.println("Main menu app deinit");
     
-    // Delete app labels array first
-    if (app_labels) {
-        delete[] app_labels;
-        app_labels = nullptr;
-    }
-    
-    // Then delete container which also deletes child LVGL objects
+    // Delete container which also deletes child LVGL objects
+    // (including all items in menu_items_labels array)
     if (menu_container) {
         lv_obj_del(menu_container);
         menu_container = nullptr;
     }
+    
+    // Delete the array itself (the LVGL objects were already freed above)
+    if (menu_items_labels) {
+        delete[] menu_items_labels;
+        menu_items_labels = nullptr;
+    }
 }
 
 void MainMenuApp::update_menu_display() {
-    // Highlight selected app
-    for (int i = 0; i < app_count; i++) {
-        if (app_labels[i]) {
+    // Highlight selected menu item
+    for (int i = 0; i < total_menu_items; i++) {
+        if (menu_items_labels[i]) {
             if (i == selected_index) {
-                lv_obj_set_style_text_color(app_labels[i], lv_color_black(), 0);
-                lv_obj_set_style_bg_color(app_labels[i], lv_color_hex(0xCCCCCC), 0);
-                lv_obj_set_style_bg_opa(app_labels[i], LV_OPA_COVER, 0);
+                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
+                lv_obj_set_style_bg_color(menu_items_labels[i], lv_color_hex(0xCCCCCC), 0);
+                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_COVER, 0);
             } else {
-                lv_obj_set_style_text_color(app_labels[i], lv_color_black(), 0);
-                lv_obj_set_style_bg_opa(app_labels[i], LV_OPA_TRANSP, 0);
+                lv_obj_set_style_text_color(menu_items_labels[i], lv_color_black(), 0);
+                lv_obj_set_style_bg_opa(menu_items_labels[i], LV_OPA_TRANSP, 0);
             }
         }
     }
 }
 
-void MainMenuApp::select_app() {
-    // Switch to selected app (offset by 1 because main menu is at index 0)
-    int app_index = selected_index + 1;
-    app_manager.switch_to_app(app_index);
+void MainMenuApp::select_menu_item() {
+    // Check if shutdown option is selected (last item)
+    int app_count = app_manager.get_app_count() - 1;
+    if (selected_index == app_count) {
+        // Shutdown selected - show feedback to user
+        Serial.println("Shutting down system...");
+        
+        // Display shutdown message
+        if (menu_items_labels[selected_index]) {
+            lv_label_set_text(menu_items_labels[selected_index], "正在关机...");
+        }
+        
+        // Update display and wait briefly for user feedback
+        lv_task_handler();
+        delay(500);
+        
+        // Now shutdown
+        board_power_bsp.shutdown_system();
+    } else {
+        // Switch to selected app (offset by 1 because main menu is at index 0)
+        int app_index = selected_index + 1;
+        app_manager.switch_to_app(app_index);
+    }
 }
 
 void MainMenuApp::loop() {
@@ -107,7 +140,7 @@ void MainMenuApp::loop() {
         last_key_time = millis();
         
         selected_index++;
-        if (selected_index >= app_count) {
+        if (selected_index >= total_menu_items) {
             selected_index = 0;
         }
         
@@ -115,13 +148,13 @@ void MainMenuApp::loop() {
         Serial.printf("Selected: %d\n", selected_index);
     }
     
-    // Select app (PWR button)
+    // Select menu item (PWR button)
     if (digitalRead(PWR_BUTTON_PIN) == LOW) {
         last_key_time = millis();
         
-        if (app_count > 0) {
-            Serial.printf("Selecting app: %d\n", selected_index);
-            select_app();
+        if (total_menu_items > 0) {
+            Serial.printf("Selecting menu item: %d\n", selected_index);
+            select_menu_item();
         }
     }
 }
