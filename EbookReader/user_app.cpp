@@ -7,7 +7,6 @@
 #include "app_manager.h"
 #include "bottom_bar.h"
 #include "main_menu_app.h"
-#include "bookshelf_app.h"
 #include "reading_app.h"
 
 // --- 全局对象 ---
@@ -16,13 +15,11 @@ board_power_bsp_t board_power_bsp(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 
 // App instances
 MainMenuApp main_menu;
-BookshelfApp bookshelf;
 ReadingApp reading_app;
 
 // App list
 BaseApp* app_list[] = {
     &main_menu,
-    &bookshelf,
     &reading_app
 };
 
