@@ -7,14 +7,14 @@
 class MainMenuApp : public BaseApp {
 private:
     lv_obj_t* menu_container;
-    lv_obj_t** app_labels;
-    int app_count;
+    lv_obj_t** menu_items_labels;
+    int total_menu_items;
     int selected_index;
     
     unsigned long last_key_time;
     
     void update_menu_display();
-    void select_app();
+    void select_menu_item();
     
 public:
     MainMenuApp();
