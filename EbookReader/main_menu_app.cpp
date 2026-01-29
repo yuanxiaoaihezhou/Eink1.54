@@ -65,6 +65,10 @@ void MainMenuApp::init() {
             if (app) {
                 menu_items_names[i] = app->get_app_name();
                 lv_label_set_text(menu_items_labels[i], menu_items_names[i]);
+            } else {
+                // Initialize to empty string if app is null
+                menu_items_names[i] = "";
+                lv_label_set_text(menu_items_labels[i], "");
             }
             
             lv_obj_align(menu_items_labels[i], LV_ALIGN_TOP_LEFT, 10, 35 + i * 25);
@@ -110,7 +114,8 @@ void MainMenuApp::update_menu_display() {
         if (menu_items_labels[i] && menu_items_names[i]) {
             if (i == selected_index) {
                 // Selected item: add cursor prefix "▶ "
-                char text_with_cursor[64];
+                // Use larger buffer to accommodate multi-byte UTF-8 characters
+                char text_with_cursor[128];
                 snprintf(text_with_cursor, sizeof(text_with_cursor), "▶ %s", menu_items_names[i]);
                 lv_label_set_text(menu_items_labels[i], text_with_cursor);
                 
